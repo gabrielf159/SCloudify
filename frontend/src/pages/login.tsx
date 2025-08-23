@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 const {
@@ -26,57 +26,72 @@ async function generateCodeChallenge(codeVerifier: string) {
 
 const Login = () => {
   const navigate = useNavigate();
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
   // Handle the redirect back from Spotify
   useEffect(() => {
-    // Spotify may return code in ?code=... OR #code=...
     const codeFromSearch = new URLSearchParams(window.location.search).get("code");
     const codeFromHash = new URLSearchParams(window.location.hash.slice(1)).get("code");
     const code = codeFromSearch || codeFromHash;
-    console.log("OAuth code:", code);
-
     if (!code) return;
 
     const codeVerifier = localStorage.getItem("code_verifier") || "";
-    console.log("Using code_verifier:", codeVerifier ? "(exists)" : "(missing)");
+    if (!codeVerifier) {
+      setErr("Missing PKCE verifier. Please try logging in again.");
+      return;
+    }
 
-    fetch("https://accounts.spotify.com/api/token", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        client_id: VITE_SPOTIFY_CLIENT_ID,
-        grant_type: "authorization_code",
-        code,
-        redirect_uri: VITE_SPOTIFY_REDIRECT_URI,
-        code_verifier: codeVerifier,
-      }),
-    })
-      .then(async (res) => {
+    const ac = new AbortController();
+
+    (async () => {
+      try {
+        setBusy(true);
+        setErr(null);
+        const res = await fetch("https://accounts.spotify.com/api/token", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({
+            client_id: VITE_SPOTIFY_CLIENT_ID,
+            grant_type: "authorization_code",
+            code,
+            redirect_uri: VITE_SPOTIFY_REDIRECT_URI,
+            code_verifier: codeVerifier,
+          }),
+          signal: ac.signal,
+        });
+
         const txt = await res.text();
-        console.log("Token response status:", res.status, txt);
-        try {
-          return { ok: res.ok, json: JSON.parse(txt) };
-        } catch {
-          return { ok: res.ok, json: {} as any };
-        }
-      })
-      .then(({ ok, json }) => {
-        if (!ok || !json.access_token) {
-          console.error("Token exchange failed:", json);
+        let json: any = {};
+        try { json = JSON.parse(txt); } catch {}
+
+        if (!res.ok || !json.access_token) {
+          console.error("Token exchange failed:", res.status, json || txt);
+          setErr("Spotify sign‑in failed. Please try again.");
           return;
         }
+
         localStorage.setItem("spotify_token", json.access_token);
-        // optional: store expiry if you want to refresh later
         if (json.expires_in) localStorage.setItem("spotify_token_expires_in", String(json.expires_in));
 
-        // Clean URL
-        window.history.replaceState(null, "", window.location.pathname);
-        navigate("/");
-      })
-      .catch((err) => console.error("Token fetch error:", err));
+        // Clean URL (remove code)
+        window.history.replaceState(null, "", new URL(window.location.href).pathname);
+        navigate("/", { replace: true });
+      } catch (e: any) {
+        if (e?.name !== "AbortError") {
+          console.error("Token fetch error:", e);
+          setErr("Network error during sign‑in. Please retry.");
+        }
+      } finally {
+        setBusy(false);
+      }
+    })();
+
+    return () => ac.abort();
   }, [navigate]);
 
   const handleLogin = async () => {
+    setErr(null);
     const codeVerifier = generateRandomString(128);
     const codeChallenge = await generateCodeChallenge(codeVerifier);
     localStorage.setItem("code_verifier", codeVerifier);
@@ -86,23 +101,27 @@ const Login = () => {
       "playlist-read-private playlist-read-collaborative user-read-email user-read-private";
 
     const authUrl =
-      `${(VITE_SPOTIFY_AUTH_ENDPOINT || "https://accounts.spotify.com/authorize")}` +
+      `${VITE_SPOTIFY_AUTH_ENDPOINT || "https://accounts.spotify.com/authorize"}` +
       `?client_id=${encodeURIComponent(VITE_SPOTIFY_CLIENT_ID)}` +
       `&response_type=code` +
       `&redirect_uri=${encodeURIComponent(VITE_SPOTIFY_REDIRECT_URI)}` +
       `&code_challenge_method=S256&code_challenge=${encodeURIComponent(codeChallenge)}` +
       `&scope=${encodeURIComponent(scopes)}` +
-      `&show_dialog=true`; // force re-consent so scopes are granted
+      `&show_dialog=true`;
 
-    console.log("Auth URL:", authUrl);
     window.location.href = authUrl;
   };
 
   return (
-    <div className="text-center mt-20">
+    <div className="text-center mt-20 p-6">
       <h2 className="text-2xl font-bold mb-4">Login with Spotify</h2>
-      <button onClick={handleLogin} className="bg-green-600 text-white px-4 py-2 rounded">
-        Connect Spotify
+      {err && <p className="text-red-600 mb-3">{err}</p>}
+      <button
+        onClick={handleLogin}
+        disabled={busy}
+        className="bg-green-600 text-white px-4 py-2 rounded disabled:opacity-60"
+      >
+        {busy ? "Connecting..." : "Connect Spotify"}
       </button>
     </div>
   );
