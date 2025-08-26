@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import StatsCard from "../components/StatsCard";
 
 const MAX_FEATURE_IDS = 100;
 
@@ -15,7 +16,6 @@ const Playlist = () => {
 
   useEffect(() => {
     if (!id) return;
-
     if (!token) {
       navigate("/login");
       return;
@@ -89,6 +89,20 @@ const Playlist = () => {
     return () => ac.abort();
   }, [id, token, navigate]);
 
+  // --- KPI averages from audioFeatures ---
+  const kpis = useMemo(() => {
+    const vals = Object.values(audioFeatures).filter(Boolean);
+    const avg = (k: string) =>
+      vals.length ? vals.reduce((s: number, v: any) => s + (v?.[k] ?? 0), 0) / vals.length : 0;
+    return {
+      danceability: avg("danceability"),
+      energy: avg("energy"),
+      valence: avg("valence"),
+      tempo: avg("tempo"),
+      haveData: vals.length > 0,
+    };
+  }, [audioFeatures]);
+
   return (
     <div className="p-6 max-w-6xl mx-auto">
       <button
@@ -99,7 +113,7 @@ const Playlist = () => {
       </button>
 
       {loading && <p className="text-center text-gray-500">Loading...</p>}
-      {error && <p className="text-red-500 text-center">{error}</p>}
+      {!playlist && error && <p className="text-red-500 text-center">{error}</p>}
 
       {playlist && (
         <div className="mb-8">
@@ -115,6 +129,16 @@ const Playlist = () => {
               <p className="text-sm text-gray-500 mt-1">{playlist.tracks?.total} tracks</p>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* KPI cards */}
+      {!loading && !error && tracks.length > 0 && kpis.haveData && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 my-6">
+          <StatsCard label="Danceability" value={kpis.danceability} />
+          <StatsCard label="Energy" value={kpis.energy} />
+          <StatsCard label="Valence" value={kpis.valence} />
+          <StatsCard label="Tempo" value={kpis.tempo} suffix=" BPM" />
         </div>
       )}
 
