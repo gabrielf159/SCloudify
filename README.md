@@ -65,7 +65,5 @@ npm run dev
 ## Author
 
 Gabriel Flores
-B.S. Computer Science, Minor in Data Science
-California State University, San Bernardino
 
 
