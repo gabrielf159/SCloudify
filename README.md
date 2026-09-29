@@ -67,3 +67,7 @@ npm run dev
 Gabriel Flores
 
 
+## Data Attribution
+
+BPM and musical key data provided by [GetSongBPM](https://getsongbpm.com).
+
